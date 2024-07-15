@@ -42,7 +42,7 @@ kubectl get pods --show-labels
 ````
 
 
-**Ver los servicios: **
+**Ver los servicios:**
 ```bash
 kubectl get services
 ````
