@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-cyberhades
+spec:
+  type: ExternalName
+  externalName: cyberhades.com

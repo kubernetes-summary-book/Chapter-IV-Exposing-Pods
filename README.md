@@ -23,6 +23,10 @@ Estos endpoints son utilizados internamente por Kubernetes para enrutar el tráf
 
 ## ClusterIp
 
+                          +--------------------+
+                          -     ClusterIP      - 
+                          +--------------------+
+
 ![](./assets/clusterIP.png)
 
 ClusterIP expone el servicio de forma interna, es decir, **solo es accesible desde dentro del clúster.
@@ -106,6 +110,13 @@ youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl describe ser
 **Al crear diferentes Pods con las misma labels, se añaden automaticamnete al mismo servicio que hará de LoadBalancer.**
 
 ## NodePort
+
+                          +--------------------+
+                          -     NodePort       - 
+                          +--------------------+
+                          +--------------------+
+                          -     ClusterIP      - 
+                          +--------------------+
 
 ![](./assets/nodeport.png)
 
@@ -199,29 +210,266 @@ youneskabiri@Youness-MacBook-Pro ~ % kubectl describe service nodeport-service
 youneskabiri@Youness-MacBook-Pro ~ % curl 192.168.49.3:30852
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
+Como podemos ver, no importa a que nodo hacemos la petición (`kube-proxy` se encarga), **pero SOLO SI LO NECESITAMOS**, podemos especificar podemos añadir el `nodePort`.
+```yaml
+. . .
+ports
+    - port: 80        # Los usuarios podrán acceder al servicio a través de este puerto.
+    targetPort: 8080  # Este es el puerto en el cual la aplicación que está siendo gestionada por Kubernetes está escuchando internamente. Kubernetes redirigirá las solicitudes que lleguen al puerto 80 hacia el puerto 8080 en los pods.
+    nodePort: 30007   # Este es el puerto en el cual el servicio estará disponible en cada nodo del clúster de Kubernetes. Es un puerto fijo y específico del nodo que permite el acceso directo desde fuera del clúster a través de la IP del nodo y este puerto.
+```
+**NOTA** `Tanto con ClusterIP como NodePort el usuario debe acceder al menos a un nodo del clúster`.  LA IDEA ES ACCEDER A UN RECURSO SI TENER QUE ACCEDER A UN NODO.
 
 ## LoadBalancer
 
+                          +--------------------+
+                          -     LoadBalancer   - 
+                          +--------------------+
+                          +--------------------+
+                          -     NodePort       - 
+                          +--------------------+
+                          +--------------------+
+                          -     ClusterIP      - 
+                          +--------------------+
+                
 ![](./assets/loadbalancer.png)
+
+El servicio de LoadBalancer obtiene una IP interna (ClusterIP), se mapea a dicho servicio un puerto un puerto en todos los nodos del clúster (NodePort) y, finalmente, se le asigna una IP externa. ==> **Esta IP externa viene dado por un LoarBlancer externo, bajo demanda o se integra a un existente.**
+
+`En un LB se abren puertos en todos los nodos del clúster -> En la versión 1.20 de K8s, podemos indicarle no hacerlo mediante: **spec.allocateLoadBalancerNodePorts**`
+
+
+Podemos integrar un LoadBalancer (del Cloud) con nuestro clúster local:
+
+  - Primero creamos uno en AWS, Azure, Google Cloud, Gigital Ocean...etc
+  - Descargar el fichero de configuración que nos genera el proveedor de cloud.
+  - Se puede integrar las configuraciones medinate la configuración del kubectl o `export KUBECONFIG=/dir1/dir2/config-file.yaml`
+
+```bash
+kubectl run myapp --image tuxotron/demonapp:v1 --labels app=myapp,ver=loadbalancer
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loadbalancer-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: myapp
+    ver: "loadbalancer"
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+```bash
+kubectl apply -f files/service-loadbalancer.yaml 
+```
+
+```bash
+kubectl get svc -o wide
+```
+```bash
+kubectl describe service loadbalancer-service
+```
+
 
 ## Servicios sin selector de etiquetas
 
+Cuando se usa un `Label`, K8s añade un andpoint al servicio de forma automática.
 
+**Una desventaja de esto**` , es que el controlador de servicios solo monitoriza los cambios que ocurren dentro del mismo espacio de nombre.`
+
+Existen situaciones en las que queremos crear un servicio sin selector (Sin select == ClusterIP) como:
+  - Apuntar a bases de datos
+  - Apuntar a servicios en un espacio de nombre distintoo incluso en otro clúster.
+  
+* EJEMPLO:
+  
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-without-select
+spec:
+  #type: xxxx
+  #selector:
+  #  app: myapp
+  #  ver: "xxxxxx"
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+```
+
+```bash
+kubectl apply -f files/service-without-select.yaml
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl apply -f files/service-without-select.yaml
+  service/service-without-select created
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl get svc
+  NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+  kubernetes               ClusterIP   10.96.0.1       <none>        443/TCP        23h
+  nodeport-service         NodePort    10.101.73.255   <none>        80:30852/TCP   23h
+  service-without-select   ClusterIP   10.109.184.33   <none>        80/TCP         22s
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl describe svc service-without-select
+  Name:              service-without-select
+  Namespace:         default
+  Labels:            <none>
+  Annotations:       <none>
+  Selector:          <none>
+  Type:              ClusterIP
+  IP Family Policy:  SingleStack
+  IP Families:       IPv4
+  IP:                10.109.184.33
+  IPs:               10.109.184.33
+  Port:              <unset>  80/TCP
+  TargetPort:        8080/TCP
+  Endpoints:         <none> <---------------------------------
+  Session Affinity:  None
+  Events:            <none>
+```
+Si ahora le mandamos tráfico, debería responder con un error.
+
+```bash
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % minikube ssh
+docker@minikube:~$ curl 10.109.184.33
+curl: (7) Failed to connect to 10.109.184.33 port 80 after 0 ms: Connection refused
+``` 
+`NOTA`: **minikube ssh** se utiliza para abrir una sesión de terminal dentro de la máquina virtual que Minikube usa para ejecutar un clúster de Kubernetes en tu máquina local.
+
+
+SOLUCIÖN::
+  - Añadir un endpoint manualmente que apunte a la IP de algún Pod que esté ejecutandose:  
+```bash
+  youneskabiri@Youness-MacBook-Pro ~ % kubectl get po -o wide
+    NAME          READY   STATUS    RESTARTS   AGE   IP             NODE           NOMINATED NODE   READINESS GATES
+    hello-world   1/1     Running   0          55s   10.244.1.220   minikube-m02   <none>           <none>
+```
+  - Sabiendo la IP y puerto del Pod, crearemos y deplegamos este endpoint
+
+```yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: service-without-select
+subsets:
+  - addresses:
+      - ip: 10.244.1.220
+    ports:
+      - port: 8080
+
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl apply -f files/service-endpoint-without-select.yaml
+  endpoints/service-without-select created
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl describe svc service-without-select
+  Name:              service-without-select
+  Namespace:         default
+  Labels:            <none>
+  Annotations:       <none>
+  Selector:          <none>
+  Type:              ClusterIP
+  IP Family Policy:  SingleStack
+  IP Families:       IPv4
+  IP:                10.109.184.33
+  IPs:               10.109.184.33
+  Port:              <unset>  80/TCP
+  TargetPort:        8080/TCP
+  Endpoints:         10.244.1.220:80
+  Session Affinity:  None
+  Events:            <none>
+```
+```bash
+docker@minikube:~$ curl 10.244.1.220:80  
+  <!DOCTYPE html>
+  <html>
+  <head>
+  <title>Welcome to nginx!</title>
+  <style>
+  html { color-scheme: light dark; }
+  body { width: 35em; margin: 0 auto;
+  font-family: Tahoma, Verdana, Arial, sans-serif; }
+  </style>
+  </head>
+  <body>
+  <h1>Welcome to nginx!</h1>
+  <p>If you see this page, the nginx web server is successfully installed and
+  working. Further configuration is required.</p>
+
+  <p>For online documentation and support please refer to
+  <a href="http://nginx.org/">nginx.org</a>.<br/>
+  Commercial support is available at
+  <a href="http://nginx.com/">nginx.com</a>.</p>
+
+  <p><em>Thank you for using nginx.</em></p>
+  </body>
+  </html>
+```
 
 ## ExternalName
 
+ExternalName permite mapear el mismo a un nombre DNS. **Este servicio no dispone de selector de atiquetas**, sino de un `atributo llamado externalName` al que se le asigna el nombre DNS desado.
+
+**Para este tipo de servicio, K8s no reserva una IP interna(CLusterIP)**, sino que le asigna la IP externa del servicio el valor del externalName ==> `Ip externa=externalName`
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-cyberhades
+spec:
+  type: ExternalName
+  externalName: cyberhades.com
+```
+
+```bash
+kubectl apply -f files/service-externalname.yaml
+kubectl get svc -o wide
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl apply -f files/service-externalname.yaml
+  service/service-cyberhades created
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl get svc -o wide
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE   SELECTOR
+  kubernetes               ClusterIP      10.96.0.1       <none>           443/TCP        24h   <none>
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   23h   app=myapp,ver=nodeport
+  service-cyberhades       ExternalName   <none>          cyberhades.com   <none>         6s    <none>
+  service-without-select   ClusterIP      10.109.184.33   <none>           80/TCP         52m   <none>
+```
+Hemos creado un servicio que apunta a `cyberhades.com` y, **no tiene un Ip interna, pero se puede saber el valor de cyberhades.com como la Ip externa.**
+
+```bash
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl apply -f files/service-externalname.yaml
+  service/service-cyberhades created
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl get svc -o wide
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE   SELECTOR
+  kubernetes               ClusterIP      10.96.0.1       <none>           443/TCP        24h   <none>
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   23h   app=myapp,ver=nodeport
+  service-cyberhades       ExternalName   <none>          cyberhades.com   <none>         6s    <none>
+  service-without-select   ClusterIP      10.109.184.33   <none>           80/TCP         52m   <none>
+youneskabiri@Youness-MacBook-Pro Chapter-IV-Exposing-Pods % kubectl run -it --rm busybox --image busybox -- sh
+If you don't see a command prompt, try pressing enter.
+/ # 
+/ # ping service-cyberhades
+PING service-cyberhades (162.159.140.98): 56 data bytes
+64 bytes from 162.159.140.98: seq=0 ttl=62 time=26.258 ms
+64 bytes from 162.159.140.98: seq=1 ttl=62 time=24.541 ms
+64 bytes from 162.159.140.98: seq=2 ttl=62 time=22.233 ms
+^C
+--- service-cyberhades ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 22.233/24.344/26.258 ms
+```
+
+`Sabemos que ping a un servicio NO responde, pero como podemo ver nos ha contestado, eso es debido a que no usa kube-proxy, sino DNS que existe dentro de clúster.`
 
 ## Service Descovery
 ## Headless

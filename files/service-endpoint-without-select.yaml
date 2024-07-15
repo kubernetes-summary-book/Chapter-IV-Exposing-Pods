@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: service-without-select
+subsets:
+  - addresses:
+      - ip: 10.244.1.220
+    ports:
+      - port: 80
