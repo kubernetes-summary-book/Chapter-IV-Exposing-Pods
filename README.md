@@ -472,7 +472,220 @@ round-trip min/avg/max = 22.233/24.344/26.258 ms
 `Sabemos que ping a un servicio NO responde, pero como podemo ver nos ha contestado, eso es debido a que no usa kube-proxy, sino DNS que existe dentro de clúster.`
 
 ## Service Descovery
+
+K8s tiene dos formas de encontrar un servicio:
+  - `Variables de Entorno`: cuando un Pod es deplegado en un nodo, **kubelet** crea dentro de este una serie de variables de entorno relacionadas con los servicios deplegados en el mismo `namespace`.
+    - **<SERVICE-NAME>_<SERVICE-HOST>** :  donde se almacena la IP del servicio.
+    - **<SERVICE-NAME>_SERVICE_PORT** : donde se almacena el puerto.
+  
+  Además se crean otras variables de entorno como protocolo..
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get svc
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+  kubernetes               ClusterIP      10.96.0.1       <none>           443/TCP        5d13h
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   5d12h
+  service-cyberhades       ExternalName   <none>          cyberhades.com   <none>         4d13h
+  service-without-select   ClusterIP      10.109.184.33   <none>           80/TCP         4d13h
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get pods
+  NAME          READY   STATUS              RESTARTS   AGE
+  hello-world   0/1     ContainerCreating   0          7s
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl exec -it hello-world -- /bin/bash
+root@hello-world:/# printenv
+  KUBERNETES_SERVICE_PORT_HTTPS=443
+  KUBERNETES_SERVICE_PORT=443
+  NODEPORT_SERVICE_PORT_80_TCP_ADDR=10.101.73.255
+  HOSTNAME=hello-world
+  SERVICE_WITHOUT_SELECT_PORT=tcp://10.109.184.33:80
+  SERVICE_WITHOUT_SELECT_PORT_80_TCP_PROTO=tcp
+  NODEPORT_SERVICE_PORT=tcp://10.101.73.255:80
+  PWD=/
+  SERVICE_WITHOUT_SELECT_SERVICE_HOST=10.109.184.33
+  NODEPORT_SERVICE_PORT_80_TCP=tcp://10.101.73.255:80
+  PKG_RELEASE=2~bookworm
+  HOME=/root
+  KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+  NODEPORT_SERVICE_SERVICE_PORT=80
+  NODEPORT_SERVICE_SERVICE_HOST=10.101.73.255
+  NJS_VERSION=0.8.4
+  TERM=xterm
+  SHLVL=1
+  KUBERNETES_PORT_443_TCP_PROTO=tcp
+  SERVICE_WITHOUT_SELECT_PORT_80_TCP_ADDR=10.109.184.33
+  KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+  SERVICE_WITHOUT_SELECT_PORT_80_TCP_PORT=80
+  KUBERNETES_SERVICE_HOST=10.96.0.1
+  KUBERNETES_PORT=tcp://10.96.0.1:443
+  KUBERNETES_PORT_443_TCP_PORT=443
+  SERVICE_WITHOUT_SELECT_PORT_80_TCP=tcp://10.109.184.33:80
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  NODEPORT_SERVICE_PORT_80_TCP_PORT=80
+  NGINX_VERSION=1.27.0
+  NJS_RELEASE=2~bookworm
+  SERVICE_WITHOUT_SELECT_SERVICE_PORT=80
+  NODEPORT_SERVICE_PORT_80_TCP_PROTO=tcp
+  _=/usr/bin/printenv
+  root@hello-world:/#
+```
+
+  - `DNS`: **Aunque instalar un servicio DND dentro de un clúster de K8s es opcional, es algo altamente recomendado hacer.**
+          De lo contrario no tendremos lo siguiente:
+      - `Servicio ExternalName`
+      - `Headless`
+      - `Acceder a los servicios por su nombre`
+      - Etc
+  
+    Por ejemplo, con `CoreDNS` monitoriza la creación de servicios dentro del clúster y crea registros DNS con el nombre del servicio.
+
+    Ventaja de usar DNS en frente a variables de entorno, es:
+      -  No es necesario que el servicio se cree antes que el Pod para que este lo pueda encontrar.
+      -  Si se cambia la IP de un servicio, esto no afectaría al Pod que acceda al servicio a través de su nombre (*TENER CUIDADO CON LA IP ANTERIOR, YA QUE PUEDE ESTAR EN CACHE*).
+      -  Cuando un servicio se crea en un espacio de nombre , los Pods desplegados en este servicio, pueden acceder al servicio a través de su nombre.
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get services --namespace default
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+  kubernetes               ClusterIP      10.96.0.1       <none>           443/TCP        5d13h
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   5d13h
+  service-cyberhades       ExternalName   <none>          cyberhades.com   <none>         4d13h
+  service-without-select   ClusterIP      10.109.184.33   <none>           80/TCP         4d14h
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get svc -o wide
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE     SELECTOR
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   5d13h   app=myapp,ver=nodeport
+  . . .
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get pods --show-labels
+NAME          READY   STATUS    RESTARTS   AGE   LABELS
+hello-world   1/1     Running   0          10s   app=myapp,ver=nodeport
+```
+Ahora vamos a usar el Pod que tenemos `hello-world` que está en `namespace=default` y se accederá al servicio con el comando **wget**:
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get nodes
+  NAME           STATUS     ROLES           AGE     VERSION
+  minikube       Ready      control-plane   5d14h   v1.28.3
+  minikube-m02   NotReady   <none>          2d19h   v1.28.3
+youneskabiri@Youness-MacBook-Pro ~ % kubectl run -it --rm busybox --image busybox -- sh
+  If you don't see a command prompt, try pressing enter.
+  / #
+  / #
+  / # exit
+  Session ended, resume using 'kubectl attach busybox -c busybox -i -t' command when the pod is running
+  pod "busybox" deleted
+  youneskabiri@Youness-MacBook-Pro ~ % kubectl get services
+  NAME                     TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+  kubernetes               ClusterIP      10.96.0.1       <none>           443/TCP        5d14h
+  nodeport-service         NodePort       10.101.73.255   <none>           80:30852/TCP   5d13h
+  service-cyberhades       ExternalName   <none>          cyberhades.com   <none>         4d13h
+  service-without-select   ClusterIP      10.109.184.33   <none>           80/TCP         4d14h
+  youneskabiri@Youness-MacBook-Pro ~ % kubectl get pods
+  NAME          READY   STATUS    RESTARTS   AGE
+  hello-world   1/1     Running   0          22m
+  youneskabiri@Youness-MacBook-Pro ~ % kubectl run -it --rm busybox --image busybox -- sh
+  If you don't see a command prompt, try pressing enter.
+  / #
+  / #
+  / # wget -O - nodeport-service
+  Connecting to nodeport-service (10.101.73.255:80)
+```
+Kubernetes crea un registro DNS de tipo A o AAAA dependiendo de la famila IPs usada para los servicios. El nombre que crea tiene este formato: `service-name.default-svc-clusterlocal`
+
+```bash
+/ # cat /etc/resolv.conf
+  nameserver 10.96.0.10
+  search default.svc.cluster.local svc.cluster.local cluster.local
+  options ndots:5
+/ #
+```
+**Esto significa que que si se consulta `nodeport-service`, la cosulta se expande a `nodeport-service.default.svc.cluster.local` o si se consulta a `node-port-service.default`, a esta le añade `.svc.cluster.local`**
+
+El servidor DNS también crea registros para los Pods en forma `pod-ip.space-name.pod.domine`
+```bash
+/ # ping 10-244-0-175.default.pod.cluester.local
+ping: bad address '10-244-0-175.default.pod.cluester.local'
+/ # ping 10-244-0-175.default.pod.cluster.local
+PING 10-244-0-175.default.pod.cluster.local (10.244.0.175): 56 data bytes
+  64 bytes from 10.244.0.175: seq=0 ttl=63 time=1.031 ms
+  64 bytes from 10.244.0.175: seq=1 ttl=63 time=0.229 ms
+  64 bytes from 10.244.0.175: seq=2 ttl=63 time=0.339 ms
+  ^C
+  --- 10-244-0-175.default.pod.cluster.local ping statistics ---
+  3 packets transmitted, 3 packets received, 0% packet loss
+  round-trip min/avg/max = 0.229/0.533/1.031 ms
+```
+
+Kubernetes permite a los usuarios especificar ciertos parámetros del DNS:
+  - `default`: El Pod hereda la resolusión de DNS del nodo donde se ejecuta.
+  - `ClusterFirst`: Cualquier nombre que no sea parte de la configuración del clúster es reenviado al servicio del nodo. 
+  - `ClusterFirstWithHostNet`:
+  - `None`: Pod ignora la configuración DNS de K8s.
+    - Campo `dnsCinfig= Opcional si el valor de dnsPolicy!=Node.
+    - `dnsPolicy=None`
+  - `nameservers`: Direcciones IP de los servidores DNS para usar como resolución de IPs. **Máximo tres Ips**.
+  - `searches`: Lista de búsqueda de dominios DNS.
+  - `options`: Una lista opcional de de objetos, donde cada uno de estos puede tener una propiedad nombre y valor.
+  
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dns-pod
+  labels:
+    app: myapp
+    ver: nodeport
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+  dnsPolicy: "None"
+  dnsConfig:
+    nameservers:
+      - 1.1.1.1
+    searches:
+      - ns1.svc.cluster-domain.example
+      - my.dns.search.suffix
+    options:
+      - name: ndots
+        value: "2"
+      - name: edns0
+
+```
+
+En este ejemplo, hemos creado un Pod con la configuración del DNS diferente.
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get pods
+  NAME          READY   STATUS    RESTARTS   AGE
+  dns-pod       1/1     Running   0          25s
+  hello-world   1/1     Running   0          83m
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl exec -it dns-pod -- bash
+  root@dns-pod:/# cat /etc/resolv.conf
+  nameserver 1.1.1.1
+  search ns1.svc.cluster-domain.example my.dns.search.suffix
+  options ndots:2 edns0
+```
+
 ## Headless
+
+Headless se usa cuando **NO se necesite un loadbalancer o una IP de un servicio**. En este caso se puede crear un servicio sin IP. `Es parecido al ExternalName solo que la redirección de peticiones no se hace afuera del clúster.`
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: headless-service
+spec:
+  selector:
+    app: myapp
+    ver: headless
+  ports:
+  - port: 8080
+  clusterIP: None
+```
 
 # Ingress
 
