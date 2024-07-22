@@ -11,9 +11,9 @@ un servicio se describe como una forma abstarcta de exponer una aplicación ejec
 - IPs de los servicios **NO cambia una vez creada**
 - IP de Pod es efimeras.  
 - Los servicios **TIENEN UNA VIDA MÁS LARGA que un Pod**.
-- Un servicio == Actúa como un Loadbalancer
+- Un servicio ==> Actúa como un Loadbalancer
 
-=> Los endpoints no son más que un **recurso de K8s que contiene uno o más direcciones IPsy puertos**.
+=> Los endpoints no son más que un **recurso de K8s que contiene uno o más direcciones IPs y puertos**.
 
 Cuando creas un servicio en Kubernetes, el servicio utiliza un selector para identificar los pods que deberían recibir el tráfico. Kubernetes automáticamente crea y gestiona un objeto de tipo Endpoints que contiene la lista de IPs y puertos de los pods seleccionados.
 
@@ -29,7 +29,8 @@ Estos endpoints son utilizados internamente por Kubernetes para enrutar el tráf
 
 ![](./assets/clusterIP.png)
 
-ClusterIP expone el servicio de forma interna, es decir, **solo es accesible desde dentro del clúster.
+ClusterIP expone el servicio de forma interna, es decir, **solo es accesible desde dentro del clúster**.
+
 `Ventajas o diferenica es que los servicios son permanentes y sus IPs no cambian`
 
 ```bash
@@ -207,7 +208,8 @@ youneskabiri@Youness-MacBook-Pro ~ % kubectl describe service nodeport-service
   Session Affinity:         None
   External Traffic Policy:  Cluster
   Events:                   <none>
-youneskabiri@Youness-MacBook-Pro ~ % curl 192.168.49.3:30852
+youneskabiri@Youness-MacBook-Pro ~ % minikube ssh
+docker@minikube:~$ curl 192.168.49.3:30852
 ```
 
 Como podemos ver, no importa a que nodo hacemos la petición (`kube-proxy` se encarga), **pero SOLO SI LO NECESITAMOS**, podemos especificar podemos añadir el `nodePort`.
@@ -218,7 +220,7 @@ ports
     targetPort: 8080  # Este es el puerto en el cual la aplicación que está siendo gestionada por Kubernetes está escuchando internamente. Kubernetes redirigirá las solicitudes que lleguen al puerto 80 hacia el puerto 8080 en los pods.
     nodePort: 30007   # Este es el puerto en el cual el servicio estará disponible en cada nodo del clúster de Kubernetes. Es un puerto fijo y específico del nodo que permite el acceso directo desde fuera del clúster a través de la IP del nodo y este puerto.
 ```
-**NOTA** `Tanto con ClusterIP como NodePort el usuario debe acceder al menos a un nodo del clúster`.  LA IDEA ES ACCEDER A UN RECURSO SI TENER QUE ACCEDER A UN NODO.
+**NOTA** `Tanto con ClusterIP como NodePort el usuario debe acceder al menos a un nodo del clúster`.  LA IDEA ES ACCEDER A UN RECURSO SIN TENER QUE ACCEDER A UN NODO.
 
 ## LoadBalancer
 
@@ -234,7 +236,7 @@ ports
                 
 ![](./assets/loadbalancer.png)
 
-El servicio de LoadBalancer obtiene una IP interna (ClusterIP), se mapea a dicho servicio un puerto un puerto en todos los nodos del clúster (NodePort) y, finalmente, se le asigna una IP externa. ==> **Esta IP externa viene dado por un LoarBlancer externo, bajo demanda o se integra a un existente.**
+El servicio de LoadBalancer obtiene una IP interna (ClusterIP), se mapea a dicho servicio un puerto en todos los nodos del clúster (NodePort) y, finalmente, se le asigna una IP externa. ==> **Esta IP externa viene dado por un LoarBlancer externo, bajo demanda o se integra a un existente.**
 
 `En un LB se abren puertos en todos los nodos del clúster -> En la versión 1.20 de K8s, podemos indicarle no hacerlo mediante: **spec.allocateLoadBalancerNodePorts**`
 
@@ -475,8 +477,8 @@ round-trip min/avg/max = 22.233/24.344/26.258 ms
 
 K8s tiene dos formas de encontrar un servicio:
   - `Variables de Entorno`: cuando un Pod es deplegado en un nodo, **kubelet** crea dentro de este una serie de variables de entorno relacionadas con los servicios deplegados en el mismo `namespace`.
-    - **<SERVICE-NAME>_<SERVICE-HOST>** :  donde se almacena la IP del servicio.
-    - **<SERVICE-NAME>_SERVICE_PORT** : donde se almacena el puerto.
+    - **{SERVICE-NAME}_{SERVICE-HOST}** :  donde se almacena la IP del servicio.
+    - **{SERVICE-NAME}_SERVICE_PORT** : donde se almacena el puerto.
   
   Además se crean otras variables de entorno como protocolo..
 
@@ -689,8 +691,367 @@ spec:
 
 # Ingress
 
+Ingress es un recurso de K8s que permite redirigir tráfico externo al clúster a servicios internos.
+Ingress puede ofrecer `loadbalancer`, `terminación SSL` y `nombres virtuales de máquinas (virtual hosting)`.
+Ingress trabaja a nivel de capa de aplicaciones (nivel 7) con HTTP/S.
+*Ingress funciona commo proxy-invers == NGINX*
+
+Debemos limpiar el clúster y añadir un `addon`.
+
+En Kubernetes, los `addons (complementos o extensiones)` son componentes adicionales que se pueden desplegar para proporcionar funcionalidades que no están incluidas en el núcleo de Kubernetes. Estos addons suelen incluir herramientas y servicios que mejoran la gestión, monitoreo, y operación del clúster. Son esenciales para el funcionamiento de un clúster Kubernetes completo y operativo.
+  - Dashboard:
+    - Kubernetes Dashboard
+  - Ingress Controllers:
+    - Nginx Ingress Controller
+    - Traefik
+  - Logging y Monitoring:
+    - Prometheus
+    - Grafana
+    - Fluentd / Fluent Bit
+  - Networking:
+    - Calico
+    - Cilium
+  - Storage:
+    - OpenEBS
+    - Rook
+  - CI/CD Tools:
+    - Jenkins
+    - Argo CD
+  - Security:
+    - Kube-Bench
+    - Kube-Hunter
+  - Service Mesh:
+    - Istio
+    - Linkerd
+
+```bash
+minikube stop
+minikube delete
+minikube start --driver=docker --memory=4g
+minikube addons enable ingress
+```
+
+**Ver lista addons disponibles** :
+```bash
+kubectl get all -n ingress-nginx
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get all -n ingress-nginx
+  NAME                                            READY   STATUS      RESTARTS   AGE
+  pod/ingress-nginx-admission-create-kqtrk        0/1     Completed   0          64s
+  pod/ingress-nginx-admission-patch-57gsn         0/1     Completed   1          64s
+  pod/ingress-nginx-controller-7c6974c4d8-xvxmw   1/1     Running     0          64s
+
+  NAME                                         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+  service/ingress-nginx-controller             NodePort    10.98.249.107   <none>        80:32712/TCP,443:32373/TCP   64s
+  service/ingress-nginx-controller-admission   ClusterIP   10.110.80.71    <none>        443/TCP                      64s
+
+  NAME                                       READY   UP-TO-DATE   AVAILABLE   AGE
+  deployment.apps/ingress-nginx-controller   1/1     1            1           64s
+
+  NAME                                                  DESIRED   CURRENT   READY   AGE
+  replicaset.apps/ingress-nginx-controller-7c6974c4d8   1         1         1       64s
+
+  NAME                                       COMPLETIONS   DURATION   AGE
+  job.batch/ingress-nginx-admission-create   1/1           8s         64s
+  job.batch/ingress-nginx-admission-patch    1/1           9s         64s
+```
+![](./assets/ingress.png)
+
+Como podemos ver en la figura, un usuario envia una petición al ingress, este, basado en rutas definidas, lo reenvía al servicio corresponiente y, a su vez, basandose en los endpoints que tiene el servicio lo envia al punto final.
+**Todo esto funciona porque cuando se crea un Ingress hay que tener un configurado un DNS externo con K8s para que, con la creación del Ingres, se cree un registro DNS con el nombre de dicho Ingress(nombre Ingress == nombre dominio válido).**
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++++++++++                                 EJEMPLO COMPLETO DE INGRESS                                       +++++++++++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+**1. Crear Pods:**
+```bash
+kubectl run pod-v1 --image tuxotron/demoapp:v1-arm --labels=ver=v1,app=app-ingress
+kubectl run pod-v2 --image tuxotron/demoapp:v2-arm --labels=ver=v2,app=app-ingress
+```
+
+**2. Exponer Pod existente :**
+```bash
+kubectl expose pod pod-v1 --port 80 --target-port 8080 --name servicio-v1
+kubectl expose pod pod-v2 --port 80 --target-port 8080 --name servicio-v2
+```
+  - `kubectl expose`: Expone un recurso existente (Pod)
+  - `pod`: El pod que va exponer el servicio.
+  - `--port 80`: El pueto para exponer el servicio internamente dentro del clúster.
+  - `--target-port`: Especifica el puerto del Pod que va a recibir el tráfico, es decir, el servicio recibe tráfico por 80 y lo envia al Pod por 8080.
+  - `--name`: Nombre del servicio.
+  
+**3. Ver si se han creado correstamente los Pods y servicios:**
+```bash
+minikube ssh
+curl servicio-v1-IP
+curl servicio-v2-IP
+```
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get svc
+  NAME          TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+  kubernetes    ClusterIP   10.96.0.1      <none>        443/TCP   24h
+  servicio-v1   ClusterIP   10.105.1.176   <none>        80/TCP    13s
+  servicio-v2   ClusterIP   10.102.17.68   <none>        80/TCP    7s
+
+youneskabiri@Youness-MacBook-Pro ~ % minikube ssh
+docker@minikube:~$ curl 10.105.1.176
+  Version 1
+  Hostname: pod-v1
+
+docker@minikube:~$ curl 10.102.17.68
+  Version 2
+  Hostname: pod-v2
+```
+**4. Crear el primer ejemplo**:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v1
+                port:
+                  number: 80
+```
+```bash
+kubectl apply -f files/ingress-example1.yaml
+```
+**- Se peudo ver como se usan las `annotations` para pasar parámetros al controlador, es este caso, nginx.**
+**- `nginx.ingress.kubernetes.io/rewrite-target: /$1` es una de las directivas de Nginx que se usan para reeescribir la URI.**
+  - `nginx.ingress.kubernetes.io/rewrite-target`: Especifica que el controlador NGINX Ingress debe reescribir la URL de la solicitud.
+  - `/$1`: Representa la parte de la ruta capturada de la expresión regular en la configuración del Ingress.
+**- Se define una única regla: cualquier petición donde el `path` de la URL empiece (pathType: Prefix) por `/`, se redirija al servicio `servicio-v1:80`.**
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get ingress
+  NAME              CLASS   HOSTS   ADDRESS        PORTS   AGE
+  example-ingress   nginx   *       192.168.49.2   80      14m
+```
+**192.168.49.2 = IP del clúester.**
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % minikube ssh
+docker@minikube:~$ curl 192.168.49.2
+  Version 1
+  Hostname: pod-v1
+```
+Como podemos ver, al hacer una peticón a la url del clúster, ingress `example-ingress` envía la petición al servicio `servicio-v1` y nos contesta el Pod `pod-v1`.
+
+Ahora vamos a cambiar el Ingress para que en vez de consultar `PATH=/`tendremos que llamar a `PATH=/v1` o a `PATH=/v2` y la petición ir al contenedor correspondiente.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v1
+                port:
+                  number: 80
+          - path: /v2
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v2
+                port:
+                  number: 80
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get services
+  NAME          TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+  kubernetes    ClusterIP   10.96.0.1      <none>        443/TCP   24h
+  servicio-v1   ClusterIP   10.105.1.176   <none>        80/TCP    36m
+  servicio-v2   ClusterIP   10.102.17.68   <none>        80/TCP    36m
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get ingress
+  NAME              CLASS   HOSTS   ADDRESS        PORTS   AGE
+  example-ingress   nginx   *       192.168.49.2   80      27m
+```
+
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % minikube ssh
+docker@minikube:~$ curl 192.168.49.2
+  <html>
+  <head><title>404 Not Found</title></head>
+  <body>
+  <center><h1>404 Not Found</h1></center>
+  <hr><center>nginx</center>
+  </body>
+  </html>
+docker@minikube:~$ curl 192.168.49.2/v1
+  Version 1
+  Hostname: pod-v1
+docker@minikube:~$ curl 192.168.49.2/v2
+  Version 2
+  Hostname: pod-v2
+```
+
+**El atributo `pathType` accepta estos valores:**
+  - `ImplementationSpecific`: Depende de la implementación del `IngressClass` (controlador Ingress usado).
+  - `Exact`: La URL coincide de forma exacta, incluyendo mayúsculas y minúsculas.
+  - `Prefix`: Basado en el prefijo de la URL dividida por `/`. 
 
 
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++++++++++                                 EJEMPLO 2 DE INGRESS CON HOST                                     +++++++++++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  rules:
+    - host: ingress-test.info
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v1
+                port:
+                  number: 80
+          - path: /v2
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v2
+                port:
+                  number: 80
+```
+
+Ahora hemos añadido un host al ejemplo anterior y vamos a ver como afecta:
+
+```bash
+docker@minikube:~$ curl 192.168.49.2
+  <html>
+  <head><title>404 Not Found</title></head>
+  <body>
+  <center><h1>404 Not Found</h1></center>
+  <hr><center>nginx</center>
+  </body>
+  </html>
+docker@minikube:~$ curl 192.168.49.2/v1
+  <html>
+  <head><title>404 Not Found</title></head>
+  <body>
+  <center><h1>404 Not Found</h1></center>
+  <hr><center>nginx</center>
+  </body>
+  </html>
+docker@minikube:~$ curl 192.168.49.2/v2
+  <html>
+  <head><title>404 Not Found</title></head>
+  <body>
+  <center><h1>404 Not Found</h1></center>
+  <hr><center>nginx</center>
+  </body>
+  </html>
+```
+
+No funciona, ya que espera en nombre del host. Lo podemos solucionar:
+  - `Mandando la cabecera HTTP Host con valor ingress-test.info.`
+   
+```bash
+docker@minikube:~$ curl -H 'Host: ingress-test.info' 192.168.49.2/v1
+  Version 1
+  Hostname: pod-v1
+docker@minikube:~$ curl -H 'Host: ingress-test.info' 192.168.49.2/v2
+  Version 2
+  Hostname: pod-v2
+```
+
+  - `Modificar el fichero /etc/hosts.` añadiendo una entrada con la IP de minikube y nombre que Ingress espera.
+
+Podemos tener más de un controlador de Ingress:
+```bash
+youneskabiri@Youness-MacBook-Pro ~ % kubectl get ingressClass
+  NAME    CONTROLLER             PARAMETERS   AGE
+  nginx   k8s.io/ingress-nginx   <none>       25h
+
+youneskabiri@Youness-MacBook-Pro ~ % kubectl describe ingressClass nginx
+  Name:         nginx
+  Labels:       app.kubernetes.io/component=controller
+                app.kubernetes.io/instance=ingress-nginx
+                app.kubernetes.io/name=ingress-nginx
+  Annotations:  ingressclass.kubernetes.io/is-default-class: true
+  Controller:   k8s.io/ingress-nginx
+  Events:       <none>
+```
+
+Para acabar este capítulo, vamos hablar sobre el manejo de tráfico encriptado:
+  - Para evitar usar certificado con HTTPS usamos `curl -k ....`
+  - Para asociar un certificado digital a un host en Ingress se hace a través de la sección `spec.tls`: 
+    - Generar certificado:
+     
+```bash
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout key.pem -out cert.pem -subj "/CN=v1.ingress-test.info/O=v1.ingress-test.info"
+```
+
+```bash
+  youneskabiri@Youness-MacBook-Pro ~ % openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout key.pem -out cert.pem -subj "/CN=v1.ingress-test.info/O=v1.ingress-test.info"
+  Generating a 2048 bit RSA private key
+  ............+++++
+  ............+++++
+  writing new private key to 'key.pem'
+-----
+```
+    - Crear secreto:
+```bash
+kubectl create secret tls v1-cert --key key.pem --cert cert.pem
+```
+
+```yaml
+. . .
+spec:
+  tls:
+  - hosts:
+    - v1.ingress-test.info
+   secretName: v1-cert
+   defaultBackend:
+    service:
+      name: servicio-v2
+      port:
+        number: 80 
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: servicio-v1
+                port:
+                  number: 80
+. . .
+```
 
 ## Authors
 
@@ -702,11 +1063,6 @@ spec:
  - [Kubernetes](https://kubernetes.io/docs/home/)
  - [Book: Kubernetes para profesionales: Desde cero al despliegue de aplicaciones seguras y resilientes](https://0xword.com/es/libros/213-kubernetes-para-profesionales-desde-cero-al-despliegue-de-aplicaciones-seguras-y-resilientes.html)
    
-
-
-
-   
-
 ## Features
 
 - Workloads
